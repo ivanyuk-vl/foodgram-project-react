@@ -1,12 +1,25 @@
 from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
-from django.utils.translation import gettext_lazy as _
 
 
 class User(AbstractUser):
-    password = models.CharField(_('password'), max_length=150)
-    first_name = models.CharField(_('first name'), max_length=150)
-    last_name = models.CharField(_('last name'), max_length=150)
-    email = models.EmailField(_('email address'), unique=True)
+    password = models.CharField('пароль', max_length=150)
+    username = models.CharField(
+        'имя пользователя',
+        max_length=150,
+        unique=True,
+        help_text=(
+            'Обязательное поле. Не более 150 символов. Только буквы, '
+            'цифры и символы @/./+/-/_.'
+        ),
+        validators=[UnicodeUsernameValidator(regex=r'^[\w.@+-]+\Z')],
+        error_messages={
+            'unique': 'Пользователь с таким именем уже существует.',
+        },
+    )
+    first_name = models.CharField('имя', max_length=150)
+    last_name = models.CharField('фамилия', max_length=150)
+    email = models.EmailField('адрес электронной почты', unique=True)
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
