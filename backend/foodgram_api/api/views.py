@@ -3,8 +3,10 @@ from djoser.serializers import (
 )
 from rest_framework import mixins
 from rest_framework.decorators import action
-from rest_framework.viewsets import GenericViewSet
+from rest_framework.viewsets import GenericViewSet, ReadOnlyModelViewSet
 
+from .serializers import IngredientSerializer, TagSerializer
+from recipes.models import Ingredient, Tag
 from users.models import User
 
 
@@ -12,8 +14,8 @@ class UserViewSet(mixins.CreateModelMixin,
                   mixins.RetrieveModelMixin,
                   mixins.ListModelMixin,
                   GenericViewSet):
-    serializer_class = UserSerializer
     queryset = User.objects.all()
+    serializer_class = UserSerializer
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -36,3 +38,15 @@ class UserViewSet(mixins.CreateModelMixin,
         serializer.is_valid(raise_exception=True)
         self.request.user.set_password(serializer.data['new_password'])
         self.request.user.save()
+
+
+class IngredientViewSet(ReadOnlyModelViewSet):
+    queryset = Ingredient.objects.all()
+    serializer_class = IngredientSerializer
+    pagination_class = None
+
+
+class TagViewSet(ReadOnlyModelViewSet):
+    queryset = Tag.objects.all()
+    serializer_class = TagSerializer
+    pagination_class = None
