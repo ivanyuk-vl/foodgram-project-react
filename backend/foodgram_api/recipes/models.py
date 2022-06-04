@@ -6,12 +6,20 @@ from users.models import User
 INGREDIENT_STR = 'id: {}, название: {}, ед.изм.: {}'
 INGREDIENT_AMOUNT_STR = 'id ингедиента: {}, кол-во: {}'
 INGREDIENT_AMOUNT_RECIPE_STR = 'id рецепта: {}, id кол-ва ингредиента: {}'
+RECIPE_STR = 'id: {}, название: {}, автор: {}'
 TAG_STR = 'id:{}, название: {}, цвет: {}, метка: {}'
 TAG_RECIPE_STR = 'id рецепта: {}, id тега: {}'
 
 
 class Ingredient(models.Model):
-    name = models.CharField('название', max_length=254, unique=True)
+    name = models.CharField(
+        'название',
+        max_length=254,
+        unique=True,
+        error_messages={
+            'unique': 'Рецепт с таким названием уже существует.',
+        },
+    )
     measurement_unit = models.CharField('единица измерения', max_length=254)
 
     class Meta:
@@ -49,11 +57,30 @@ class IngredientAmountRecipe(models.Model):
 
 
 class Tag(models.Model):
-    name = models.CharField('название', max_length=254, unique=True)
-    color = models.CharField(
-        'цвет', max_length=7, validators=[HexColorValidator()], unique=True
+    name = models.CharField(
+        'название',
+        max_length=254,
+        unique=True,
+        error_messages={
+            'unique': 'Тег с таким названием уже существует.',
+        }
     )
-    slug = models.SlugField('метка', unique=True)
+    color = models.CharField(
+        'цвет',
+        max_length=7,
+        validators=[HexColorValidator()],
+        unique=True,
+        error_messages={
+            'unique': 'Тег с таким цветом уже существует.',
+        }
+    )
+    slug = models.SlugField(
+        'метка',
+        unique=True,
+        error_messages={
+            'unique': 'Тег с такой меткой уже существует.',
+        }
+    )
 
     class Meta:
         verbose_name = 'тег'
@@ -89,3 +116,6 @@ class Recipe(models.Model):
     class Meta:
         verbose_name = 'рецепт'
         verbose_name_plural = 'рецепты'
+
+    def __str__(self):
+        return RECIPE_STR.format(self.pk, self.author.username, self.name)
