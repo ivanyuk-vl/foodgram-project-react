@@ -1,6 +1,8 @@
 from django.db import models
 
-from .validators import min_cooking_time_validator, HexColorValidator
+from .validators import (
+    min_cooking_time_validator, validate_hex_color, validate_slug
+)
 from users.models import User
 
 INGREDIENT_STR = 'id: {}, название: {}, ед.изм.: {}'
@@ -11,16 +13,20 @@ TAG_STR = 'id:{}, название: {}, цвет: {}, метка: {}'
 TAG_RECIPE_STR = 'id рецепта: {}, id тега: {}'
 
 
+class SlugField(models.SlugField):
+    default_validators = [validate_slug]
+
+
 class Ingredient(models.Model):
     name = models.CharField(
         'название',
-        max_length=254,
+        max_length=200,
         unique=True,
         error_messages={
             'unique': 'Рецепт с таким названием уже существует.',
         },
     )
-    measurement_unit = models.CharField('единица измерения', max_length=254)
+    measurement_unit = models.CharField('единица измерения', max_length=200)
 
     class Meta:
         verbose_name = 'ингредиент'
@@ -59,7 +65,7 @@ class IngredientAmountRecipe(models.Model):
 class Tag(models.Model):
     name = models.CharField(
         'название',
-        max_length=254,
+        max_length=200,
         unique=True,
         error_messages={
             'unique': 'Тег с таким названием уже существует.',
@@ -68,15 +74,18 @@ class Tag(models.Model):
     color = models.CharField(
         'цвет',
         max_length=7,
-        validators=[HexColorValidator()],
+        validators=[validate_hex_color],
         unique=True,
+        null=True,
         error_messages={
             'unique': 'Тег с таким цветом уже существует.',
         }
     )
-    slug = models.SlugField(
+    slug = SlugField(
         'метка',
+        max_length=200,
         unique=True,
+        null=True,
         error_messages={
             'unique': 'Тег с такой меткой уже существует.',
         }

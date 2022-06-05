@@ -13,7 +13,7 @@ class User(AbstractUser):
             'Обязательное поле. Не более 150 символов. Только буквы, '
             'цифры и символы @/./+/-/_.'
         ),
-        validators=[UnicodeUsernameValidator(regex=r'^[\w.@+-]+\Z')],
+        validators=[UnicodeUsernameValidator(r'^[\w.@+-]+\Z')],
         error_messages={
             'unique': 'Пользователь с таким именем уже существует.',
         },
