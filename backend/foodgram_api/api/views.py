@@ -1,12 +1,17 @@
 from djoser.serializers import (
     SetPasswordSerializer, UserCreateSerializer, UserSerializer
 )
-from rest_framework import mixins
+from rest_framework import mixins, status
 from rest_framework.decorators import action
-from rest_framework.viewsets import GenericViewSet, ReadOnlyModelViewSet
+from rest_framework.response import Response
+from rest_framework.viewsets import (
+    GenericViewSet, ModelViewSet, ReadOnlyModelViewSet
+)
 
-from .serializers import IngredientSerializer, TagSerializer
-from recipes.models import Ingredient, Tag
+from .serializers import (
+    IngredientSerializer, RecipeGetSerializer, RecipeSerializer, TagSerializer
+)
+from recipes.models import Ingredient, Recipe, Tag
 from users.models import User
 
 
@@ -50,3 +55,21 @@ class TagViewSet(ReadOnlyModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
     pagination_class = None
+
+
+class RecipeViewSet(ModelViewSet):
+    queryset = Recipe.objects.all()
+    serializer_class = RecipeSerializer
+
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            return RecipeGetSerializer
+        return self.serializer_class
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(
+            RecipeGetSerializer(instance=serializer.save()).data,
+            status=status.HTTP_201_CREATED
+        )
