@@ -1,6 +1,7 @@
 from djoser.serializers import (
     SetPasswordSerializer, UserCreateSerializer, UserSerializer
 )
+from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -43,6 +44,19 @@ class UserViewSet(mixins.CreateModelMixin,
         serializer.is_valid(raise_exception=True)
         self.request.user.set_password(serializer.data['new_password'])
         self.request.user.save()
+
+    @action(
+        ['post', 'delete'],
+        detail=False,
+        url_path=r'(?P<author_id>\d+)/subscribe'
+    )
+    def subscribe(self, request, author_id, *args, **kwargs):
+        author = get_object_or_404(User, id=author_id)
+        if self.request.method == 'POST':
+            self.request.user.subscriptions.create(author=author)
+        if self.request.method == 'DELETE':
+            self.request.user.subscriptions.get(author=author).delete()
+        return Response()
 
 
 class IngredientViewSet(ReadOnlyModelViewSet):
