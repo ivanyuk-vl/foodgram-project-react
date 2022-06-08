@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import User
+from .models import Subscribe, User
 
 
 @admin.register(User)
@@ -11,3 +11,6 @@ class CustomUserAdmin(UserAdmin):
         'fields': ('username', 'email', 'first_name',
                    'last_name', 'password1', 'password2')
     }),)
+
+
+admin.site.register(Subscribe)
