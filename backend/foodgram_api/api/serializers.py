@@ -1,6 +1,19 @@
+from djoser.serializers import UserSerializer as DjoserUserSerializer
 from rest_framework import serializers
 
 from recipes.models import Ingredient, IngredientRecipe, Recipe, Tag
+
+
+class UserSerializer(DjoserUserSerializer):
+    is_subscribed = serializers.SerializerMethodField()
+
+    def get_is_subscribed(self, instance):
+        return bool(instance.subscribers.filter(
+            user=self.context['request'].user
+        ).count())
+
+    class Meta(DjoserUserSerializer.Meta):
+        fields = DjoserUserSerializer.Meta.fields + ('is_subscribed',)
 
 
 class IngredientSerializer(serializers.ModelSerializer):
