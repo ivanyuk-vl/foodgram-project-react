@@ -1,4 +1,5 @@
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Count
 from django.db.utils import IntegrityError
 from djoser.serializers import SetPasswordSerializer, UserCreateSerializer
 from djoser.serializers import UserSerializer as DjoserUserSerializer
@@ -11,8 +12,8 @@ from rest_framework.viewsets import (
 )
 
 from .serializers import (
-    IngredientSerializer, RecipeGetSerializer, RecipeSerializer,
-    TagSerializer, UserSerializer
+    IngredientSerializer, SubscribeSerializer, RecipeGetSerializer,
+    RecipeSerializer, TagSerializer, UserSerializer
 )
 from recipes.models import Ingredient, Recipe, Tag
 from users.models import User
@@ -30,7 +31,9 @@ class UserViewSet(mixins.CreateModelMixin,
     serializer_class = UserSerializer
 
     def get_serializer_class(self):
-        if self.action == 'create':
+        if self.action == 'subscribe':
+            return SubscribeSerializer
+        elif self.action == 'create':
             return UserCreateSerializer
         elif self.action == 'set_password':
             return SetPasswordSerializer
@@ -65,7 +68,9 @@ class UserViewSet(mixins.CreateModelMixin,
         url_path=r'(?P<author_id>\d+)/subscribe'
     )
     def subscribe(self, request, author_id, *args, **kwargs):
-        author = get_object_or_404(User, id=author_id)
+        author = get_object_or_404(User.objects.filter(id=author_id).annotate(
+            recipes_count=Count('recipes')
+        ))
         try:
             if self.request.method == 'DELETE':
                 self.request.user.subscriptions.get(author=author).delete()
@@ -91,10 +96,26 @@ class UserViewSet(mixins.CreateModelMixin,
             return Response(
                 {'errors': data}, status=status.HTTP_400_BAD_REQUEST
             )
-        return Response()
+        return Response(
+            self.get_serializer(author).data,
+            status=status.HTTP_201_CREATED
+        )
 
+    def get_authors(self):
+        return (
+            User.objects
+            .filter(subscribers__user=self.request.user)
+            .annotate(recipes_count=Count('recipes'))
+        )
+
+    def get_subscribe_serializer(self):
+        return SubscribeSerializer
+
+    @action(['get'], detail=False)
     def subscriptions(self, request, *args, **kwargs):
-        return Response()
+        self.get_queryset = self.get_authors
+        self.get_serializer_class = self.get_subscribe_serializer
+        return self.list(request, *args, **kwargs)
 
 
 class IngredientViewSet(ReadOnlyModelViewSet):
