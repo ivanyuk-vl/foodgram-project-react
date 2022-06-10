@@ -8,9 +8,12 @@ class UserSerializer(DjoserUserSerializer):
     is_subscribed = serializers.SerializerMethodField()
 
     def get_is_subscribed(self, instance):
-        return bool(instance.subscribers.filter(
-            user=self.context['request'].user
-        ).count())
+        return (
+            self.context['request'].user.is_authenticated
+            and instance.subscribers.filter(
+                user=self.context['request'].user
+            ).exists()
+        )
 
     class Meta(DjoserUserSerializer.Meta):
         fields = DjoserUserSerializer.Meta.fields + ('is_subscribed',)
@@ -80,14 +83,38 @@ class RecipeSerializer(serializers.ModelSerializer):
 
 
 class RecipeGetSerializer(serializers.ModelSerializer):
-    ingredients = serializers.SerializerMethodField()
     tags = TagSerializer(many=True)
+    author = UserSerializer()
+    ingredients = serializers.SerializerMethodField()
 
     class Meta:
         model = Recipe
-        exclude = ('image',)
+        fields = (
+            'id', 'tags', 'author', 'ingredients', 'name', 'image',
+            'text', 'cooking_time'
+        )
+        read_only_fields = fields
 
     def get_ingredients(self, instance):
         return IngredientRecipeGetSerializer(
-            instance=instance.amounts_of_ingredients.all(), many=True
+            instance.amounts_of_ingredients.all(), many=True
         ).data
+
+
+class RecipeShortSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Recipe
+        fields = ('id', 'name', 'image', 'cooking_time')
+        read_only_fields = fields
+
+
+class SubscribeSerializer(UserSerializer):
+    recipes = serializers.SerializerMethodField()
+    recipes_count = serializers.IntegerField()
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ('recipes', 'recipes_count')
+        read_only_fields = fields
+
+    def get_recipes(self, instance):
+        return RecipeShortSerializer(instance.recipes.all(), many=True).data
