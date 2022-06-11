@@ -13,12 +13,12 @@ from rest_framework.viewsets import (
 
 from .serializers import (
     IngredientSerializer, SubscribeSerializer, RecipeGetSerializer,
-    RecipeSerializer, TagSerializer, UserSerializer
+    RecipeShortSerializer, RecipeSerializer, TagSerializer, UserSerializer
 )
 from recipes.models import Ingredient, Recipe, Tag
 from users.models import User
 
-DELETE_SUBSCRIBE_ERROR = 'Пользователь {} не подписан на автора {}.'
+DOES_NOT_EXIST_SUBSCRIBE_ERROR = 'Пользователь {} не подписан на автора {}.'
 SELF_SUBSCRIBE_ERROR = 'Нельзя подписаться на самого себя.'
 UNIQUE_SUBSCRIBE_ERROR = 'Пользователь {} уже подписан на автора {}.'
 
@@ -78,9 +78,11 @@ class UserViewSet(mixins.CreateModelMixin,
             self.request.user.subscriptions.create(author=author)
         except ObjectDoesNotExist:
             return Response(
-                {'errors': DELETE_SUBSCRIBE_ERROR.format(
-                    self.request.user.username, author.username
-                )},
+                {
+                    'errors': DOES_NOT_EXIST_SUBSCRIBE_ERROR.format(
+                        self.request.user.username, author.username
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
         except IntegrityError as exception:
@@ -101,7 +103,7 @@ class UserViewSet(mixins.CreateModelMixin,
             status=status.HTTP_201_CREATED
         )
 
-    def get_authors(self):
+    def get_subscriptions(self):
         return (
             User.objects
             .filter(subscribers__user=self.request.user)
@@ -113,7 +115,7 @@ class UserViewSet(mixins.CreateModelMixin,
 
     @action(['get'], detail=False)
     def subscriptions(self, request, *args, **kwargs):
-        self.get_queryset = self.get_authors
+        self.get_queryset = self.get_subscriptions
         self.get_serializer_class = self.get_subscribe_serializer
         return self.list(request, *args, **kwargs)
 
@@ -137,12 +139,31 @@ class RecipeViewSet(ModelViewSet):
     def get_serializer_class(self):
         if self.request.method == 'GET':
             return RecipeGetSerializer
+        elif self.action == 'favorite':
+            return RecipeShortSerializer
         return self.serializer_class
+
+    def get_recipe_get_serializer(self):
+        return RecipeGetSerializer
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self.get_serializer_class = self.get_recipe_get_serializer
         return Response(
-            RecipeGetSerializer(instance=serializer.save()).data,
+            self.get_serializer(instance=serializer.save()).data,
             status=status.HTTP_201_CREATED
         )
+
+    @action(
+        ['post', 'delete'],
+        detail=False,
+        url_path=r'(?P<recipe_id>\d+)/favorite'
+    )
+    def favorite(self, request, recipe_id, *args, **kwargs):
+        recipe = get_object_or_404(Recipe, id=recipe_id)
+        if self.action == 'DELETE':
+            self.request.user.favorite.get(recipe=recipe).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        self.request.user.favorite.create(recipe=recipe)
+        return Response(status=status.HTTP_201_CREATED)
