@@ -2,6 +2,8 @@ from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
 
+SUBSCRIBE_STR = 'id: {}, автор: {}, подписчик: {}'
+
 
 class User(AbstractUser):
     password = models.CharField('пароль', max_length=150)
@@ -39,13 +41,13 @@ class Subscribe(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name='subscribers',
-        verbose_name='подписчики'
+        verbose_name='автор'
     )
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         related_name='subscriptions',
-        verbose_name='подписки'
+        verbose_name='подписчик'
     )
 
     class Meta:
@@ -60,3 +62,8 @@ class Subscribe(models.Model):
         ]
         verbose_name = 'подписка'
         verbose_name_plural = 'подписки'
+
+    def __str__(self):
+        return SUBSCRIBE_STR.format(
+            self.id, self.author.username, self.user.username
+        )

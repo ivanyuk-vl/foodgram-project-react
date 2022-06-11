@@ -18,8 +18,10 @@ from .serializers import (
 from recipes.models import Ingredient, Recipe, Tag
 from users.models import User
 
+DOES_NOT_EXIST_FAVORITE_ERROR = 'У пользователя {} нет рецета {} в избранном.'
 DOES_NOT_EXIST_SUBSCRIBE_ERROR = 'Пользователь {} не подписан на автора {}.'
 SELF_SUBSCRIBE_ERROR = 'Нельзя подписаться на самого себя.'
+UNIQUE_FAVORITE_ERROR = 'У пользователя {} уже есть рецепт {} в избранном.'
 UNIQUE_SUBSCRIBE_ERROR = 'Пользователь {} уже подписан на автора {}.'
 
 
@@ -45,10 +47,9 @@ class UserViewSet(mixins.CreateModelMixin,
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response(
-            DjoserUserSerializer(instance=serializer.save()).data,
-            status=status.HTTP_201_CREATED
-        )
+        return Response(DjoserUserSerializer(
+            instance=serializer.save()
+        ).data, status=status.HTTP_201_CREATED)
 
     @action(['get'], detail=False)
     def me(self, request, *args, **kwargs):
@@ -77,14 +78,9 @@ class UserViewSet(mixins.CreateModelMixin,
                 return Response(status=status.HTTP_204_NO_CONTENT)
             self.request.user.subscriptions.create(author=author)
         except ObjectDoesNotExist:
-            return Response(
-                {
-                    'errors': DOES_NOT_EXIST_SUBSCRIBE_ERROR.format(
-                        self.request.user.username, author.username
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'errors': DOES_NOT_EXIST_SUBSCRIBE_ERROR.format(
+                self.request.user.username, author.username
+            )}, status=status.HTTP_400_BAD_REQUEST)
         except IntegrityError as exception:
             exception_message = str(exception)
             if exception_message.startswith('UNIQUE'):
@@ -139,7 +135,7 @@ class RecipeViewSet(ModelViewSet):
     def get_serializer_class(self):
         if self.request.method == 'GET':
             return RecipeGetSerializer
-        elif self.action == 'favorite':
+        elif self.action in ('favorite', 'shopping_cart'):
             return RecipeShortSerializer
         return self.serializer_class
 
@@ -150,10 +146,9 @@ class RecipeViewSet(ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.get_serializer_class = self.get_recipe_get_serializer
-        return Response(
-            self.get_serializer(instance=serializer.save()).data,
-            status=status.HTTP_201_CREATED
-        )
+        return Response(self.get_serializer(
+            instance=serializer.save()
+        ).data, status=status.HTTP_201_CREATED)
 
     @action(
         ['post', 'delete'],
@@ -162,8 +157,33 @@ class RecipeViewSet(ModelViewSet):
     )
     def favorite(self, request, recipe_id, *args, **kwargs):
         recipe = get_object_or_404(Recipe, id=recipe_id)
-        if self.action == 'DELETE':
-            self.request.user.favorite.get(recipe=recipe).delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        self.request.user.favorite.create(recipe=recipe)
-        return Response(status=status.HTTP_201_CREATED)
+        try:
+            if self.action == 'DELETE':
+                self.request.user.favorite.get(recipe=recipe).delete()
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            self.request.user.favorite.create(recipe=recipe)
+        except ObjectDoesNotExist:
+            return Response({'errors': DOES_NOT_EXIST_FAVORITE_ERROR.format(
+                self.request.user.username, recipe.name
+            )}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError as exception:
+            if not str(exception).startswith('UNIQUE'):
+                raise IntegrityError(exception)
+            return Response(UNIQUE_FAVORITE_ERROR.format(
+                self.request.user.username, recipe.name
+            ), status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            self.get_serializer(recipe), status=status.HTTP_201_CREATED
+        )
+
+    @action(
+        ['post', 'delete'],
+        detail=False,
+        url_path=r'(?P<recipe_id>)\d+/shopping_cart'
+    )
+    def shopping_cart(self, request, recipe_id, *args, **kwargs):
+        pass
+
+    @action(['get'], detail=False)
+    def download_shopping_cart(self, request, *args, **kwargs):
+        pass

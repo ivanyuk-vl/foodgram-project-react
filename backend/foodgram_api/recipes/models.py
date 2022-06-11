@@ -5,6 +5,7 @@ from .validators import (
 )
 from users.models import User
 
+ID_RECIPE_USER_STR = 'id: {}, рецепт: {}, пользователь: {}'
 INGREDIENT_STR = 'id: {}, название: {}, ед.изм.: {}'
 INGREDIENT_RECIPE_STR = 'id: {}, рецепт: {}, ингедиент: {}, кол-во: {}'
 RECIPE_STR = 'id: {}, название: {}, автор: {}'
@@ -122,13 +123,13 @@ class Favorite(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name='favorite',
-        verbose_name='пользователи'
+        verbose_name='пользователь'
     )
     recipe = models.ForeignKey(
         Recipe,
         on_delete=models.CASCADE,
         related_name='favorite',
-        verbose_name='рецепты'
+        verbose_name='рецепт'
     )
 
     class Meta:
@@ -139,3 +140,37 @@ class Favorite(models.Model):
                 fields=['user', 'recipe'], name='unique_favorite'
             )
         ]
+
+    def __str__(self):
+        return ID_RECIPE_USER_STR.format(
+            self.pk, self.recipe.name, self.user.username
+        )
+
+
+class ShoppingCart(models.Model):
+    recipe = models.ForeignKey(
+        Recipe,
+        on_delete=models.CASCADE,
+        related_name='shopping_cart',
+        verbose_name='рецепт'
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='shopping_cart',
+        verbose_name='пользователь'
+    )
+
+    class Meta:
+        verbose_name = 'cписок покупок'
+        verbose_name_plural = 'списки покупок'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'recipe'], name='unique_shopping_cart'
+            )
+        ]
+
+    def __str__(self):
+        return ID_RECIPE_USER_STR.format(
+            self.pk, self.recipe.name, self.user.username
+        )
