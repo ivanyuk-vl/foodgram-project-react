@@ -1,7 +1,8 @@
+from django.db.models import F
 from djoser.serializers import UserSerializer as DjoserUserSerializer
 from rest_framework import serializers
 
-from recipes.models import Ingredient, IngredientRecipe, Recipe, Tag
+from recipes.models import Ingredient, IngredientAmount, Recipe, Tag
 
 
 class UserSerializer(DjoserUserSerializer):
@@ -22,58 +23,47 @@ class UserSerializer(DjoserUserSerializer):
 class IngredientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ingredient
-        fields = '__all__'
+        fields = ('id', 'name', 'measurement_unit')
+        read_only_fields = fields
 
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tag
-        fields = '__all__'
+        fields = ('id', 'name', 'color', 'slug')
+        read_only_fields = fields
 
 
-class IngredientRecipeSerializer(serializers.ModelSerializer):
+class IngredientAmountSerializer(serializers.ModelSerializer):
     id = serializers.PrimaryKeyRelatedField(
         source='ingredient', queryset=Ingredient.objects.all()
     )
 
     class Meta:
-        model = IngredientRecipe
+        model = IngredientAmount
         fields = ('id', 'amount')
 
 
-class IngredientRecipeGetSerializer(serializers.ModelSerializer):
-    id = serializers.PrimaryKeyRelatedField(
-        source='ingredient', read_only=True
-    )
-    name = serializers.SlugRelatedField(
-        source='ingredient', slug_field='name', read_only=True
-    )
-    measurement_unit = serializers.SlugRelatedField(
-        source='ingredient', slug_field='measurement_unit', read_only=True
-    )
+class IngredientAmountGetSerializer(IngredientSerializer):
+    amount = serializers.IntegerField()
 
-    class Meta:
-        model = IngredientRecipe
-        fields = ('id', 'name', 'measurement_unit', 'amount')
-        read_only_fields = fields
+    class Meta(IngredientSerializer.Meta):
+        fields = IngredientSerializer.Meta.fields + ('amount',)
 
 
 class RecipeSerializer(serializers.ModelSerializer):
-    ingredients = IngredientRecipeSerializer(many=True)
-    tags = serializers.PrimaryKeyRelatedField(
-        queryset=Tag.objects.all(), many=True
-    )
+    ingredients = IngredientAmountSerializer(many=True)
 
     class Meta:
         model = Recipe
-        exclude = ('image',)
+        exclude = ('author', 'image')
 
     def create(self, validated_data):
         ingredients = validated_data.pop('ingredients')
         tags = validated_data.pop('tags')
         recipe = Recipe.objects.create(**validated_data)
         for ingredient in ingredients:
-            IngredientRecipe.objects.create(
+            IngredientAmount.objects.create(
                 recipe=recipe,
                 ingredient=ingredient['ingredient'],
                 amount=ingredient['amount']
@@ -96,9 +86,9 @@ class RecipeGetSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_ingredients(self, instance):
-        return IngredientRecipeGetSerializer(
-            instance.amounts_of_ingredients.all(), many=True
-        ).data
+        return IngredientAmountGetSerializer(instance.ingredients.annotate(
+            amount=F('amounts_for_recipes__amount')
+        ), many=True).data
 
 
 class RecipeShortSerializer(serializers.ModelSerializer):

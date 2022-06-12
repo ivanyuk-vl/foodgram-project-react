@@ -1,5 +1,5 @@
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import Count
+from django.db.models import Count, Sum
 from django.db.utils import IntegrityError
 from djoser.serializers import SetPasswordSerializer, UserCreateSerializer
 from djoser.serializers import UserSerializer as DjoserUserSerializer
@@ -11,6 +11,7 @@ from rest_framework.viewsets import (
     GenericViewSet, ModelViewSet, ReadOnlyModelViewSet
 )
 
+from .filters import NameSearchFilter
 from .serializers import (
     IngredientSerializer, SubscribeSerializer, RecipeGetSerializer,
     RecipeShortSerializer, RecipeSerializer, TagSerializer, UserSerializer
@@ -18,9 +19,12 @@ from .serializers import (
 from recipes.models import Ingredient, Recipe, Tag
 from users.models import User
 
+
+DOES_NOT_EXIST_CART_ERROR = 'У пользователя {} нет рецета {} в списке покупок.'
 DOES_NOT_EXIST_FAVORITE_ERROR = 'У пользователя {} нет рецета {} в избранном.'
 DOES_NOT_EXIST_SUBSCRIBE_ERROR = 'Пользователь {} не подписан на автора {}.'
 SELF_SUBSCRIBE_ERROR = 'Нельзя подписаться на самого себя.'
+UNIQUE_CART_ERROR = 'У пользователя {} уже есть рецепт {} в списке покупок.'
 UNIQUE_FAVORITE_ERROR = 'У пользователя {} уже есть рецепт {} в избранном.'
 UNIQUE_SUBSCRIBE_ERROR = 'Пользователь {} уже подписан на автора {}.'
 
@@ -120,6 +124,7 @@ class IngredientViewSet(ReadOnlyModelViewSet):
     queryset = Ingredient.objects.all()
     serializer_class = IngredientSerializer
     pagination_class = None
+    filter_backends = (NameSearchFilter,)
 
 
 class TagViewSet(ReadOnlyModelViewSet):
@@ -147,7 +152,7 @@ class RecipeViewSet(ModelViewSet):
         serializer.is_valid(raise_exception=True)
         self.get_serializer_class = self.get_recipe_get_serializer
         return Response(self.get_serializer(
-            instance=serializer.save()
+            instance=serializer.save(author=self.request.user)
         ).data, status=status.HTTP_201_CREATED)
 
     @action(
@@ -182,8 +187,28 @@ class RecipeViewSet(ModelViewSet):
         url_path=r'(?P<recipe_id>)\d+/shopping_cart'
     )
     def shopping_cart(self, request, recipe_id, *args, **kwargs):
-        pass
+        recipe = get_object_or_404(Recipe, id=recipe_id)
+        try:
+            if self.action == 'DELETE':
+                self.request.user.shopping_cart.get(recipe=recipe).delete()
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            self.request.user.shopping_cart.create(recipe=recipe)
+        except ObjectDoesNotExist:
+            return Response({'errors': DOES_NOT_EXIST_CART_ERROR.format(
+                self.request.user.username, recipe.name
+            )}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError as exception:
+            if not str(exception).startswith('UNIQUE'):
+                raise IntegrityError(exception)
+            return Response(UNIQUE_CART_ERROR.format(
+                self.request.user.username, recipe.name
+            ), status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            self.get_serializer(recipe), status=status.HTTP_201_CREATED
+        )
 
     @action(['get'], detail=False)
     def download_shopping_cart(self, request, *args, **kwargs):
-        pass
+        Ingredient.objects.filter(
+            recipe__shopping_cart__user=self.request.user
+        ).annotate(amount=Sum('amounts_for_recipes__amount'))

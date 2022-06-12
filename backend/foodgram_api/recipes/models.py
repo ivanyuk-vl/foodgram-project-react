@@ -7,7 +7,7 @@ from users.models import User
 
 ID_RECIPE_USER_STR = 'id: {}, рецепт: {}, пользователь: {}'
 INGREDIENT_STR = 'id: {}, название: {}, ед.изм.: {}'
-INGREDIENT_RECIPE_STR = 'id: {}, рецепт: {}, ингедиент: {}, кол-во: {}'
+INGREDIENT_AMOUNT_STR = 'id: {}, рецепт: {}, ингедиент: {}, кол-во: {}'
 RECIPE_STR = 'id: {}, название: {}, автор: {}'
 TAG_STR = 'id:{}, название: {}, цвет: {}, метка: {}'
 
@@ -37,7 +37,7 @@ class Ingredient(models.Model):
         )
 
 
-class IngredientRecipe(models.Model):
+class IngredientAmount(models.Model):
     recipe = models.ForeignKey(
         'Recipe',
         on_delete=models.CASCADE,
@@ -53,9 +53,15 @@ class IngredientRecipe(models.Model):
     class Meta:
         verbose_name = 'количество ингредиента'
         verbose_name_plural = 'количества ингредиентов'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['recipe', 'ingredient'],
+                name='unique_ingredient_amount'
+            )
+        ]
 
     def __str__(self):
-        return INGREDIENT_RECIPE_STR.format(
+        return INGREDIENT_AMOUNT_STR.format(
             self.id, self.recipe.name, self.ingredient.name, self.amount
         )
 
@@ -104,7 +110,9 @@ class Recipe(models.Model):
     name = models.CharField('название', max_length=200)
     image = models.ImageField('изображение', upload_to='recipes/')
     text = models.TextField('описание')
-    ingredients = models.ManyToManyField(Ingredient, through=IngredientRecipe)
+    ingredients = models.ManyToManyField(
+        Ingredient, through=IngredientAmount
+    )
     tags = models.ManyToManyField(Tag)
     cooking_time = models.IntegerField(
         'время приготовления', validators=[min_cooking_time_validator]
