@@ -1,8 +1,7 @@
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import Count, Sum
+from django.db.models import Count, Exists, OuterRef, Sum
 from django.db.utils import IntegrityError
 from djoser.serializers import SetPasswordSerializer, UserCreateSerializer
-from djoser.serializers import UserSerializer as DjoserUserSerializer
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
@@ -13,11 +12,13 @@ from rest_framework.viewsets import (
 
 from .filters import NameSearchFilter
 from .serializers import (
-    IngredientSerializer, SubscribeSerializer, RecipeGetSerializer,
-    RecipeShortSerializer, RecipeSerializer, TagSerializer, UserSerializer
+    IngredientReadSerializer, SubscribePostReadSerializer,
+    SubscribeReadSerializer, RecipeReadSerializer,
+    RecipePostReadSerializer, RecipeShortReadSerializer, RecipeSerializer,
+    TagReadSerializer, UserSerializer
 )
 from recipes.models import Ingredient, Recipe, Tag
-from users.models import User
+from users.models import User, Subscribe
 
 
 DOES_NOT_EXIST_CART_ERROR = 'У пользователя {} нет рецета {} в списке покупок.'
@@ -33,12 +34,22 @@ class UserViewSet(mixins.CreateModelMixin,
                   mixins.RetrieveModelMixin,
                   mixins.ListModelMixin,
                   GenericViewSet):
-    queryset = User.objects.all()
     serializer_class = UserSerializer
+
+    def get_users_queryset(self):
+        return User.objects.annotate(is_subscribed=Exists(
+            Subscribe.objects.filter(
+                author=OuterRef('pk'),
+                user__username=self.request.user.username
+            )
+        ))
+
+    def get_queryset(self):
+        return self.get_users_queryset().all()
 
     def get_serializer_class(self):
         if self.action == 'subscribe':
-            return SubscribeSerializer
+            return SubscribePostReadSerializer
         elif self.action == 'create':
             return UserCreateSerializer
         elif self.action == 'set_password':
@@ -47,13 +58,6 @@ class UserViewSet(mixins.CreateModelMixin,
 
     def get_instance(self):
         return self.request.user
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return Response(DjoserUserSerializer(
-            instance=serializer.save()
-        ).data, status=status.HTTP_201_CREATED)
 
     @action(['get'], detail=False)
     def me(self, request, *args, **kwargs):
@@ -103,57 +107,73 @@ class UserViewSet(mixins.CreateModelMixin,
             status=status.HTTP_201_CREATED
         )
 
-    def get_subscriptions(self):
+    def get_subscriptions_queryset(self):
         return (
-            User.objects
-            .filter(subscribers__user=self.request.user)
+            self.get_users_queryset()
             .annotate(recipes_count=Count('recipes'))
+            .filter(subscribers__user=self.request.user)
         )
 
-    def get_subscribe_serializer(self):
-        return SubscribeSerializer
+    def get_subscribe_read_serializer_class(self):
+        return SubscribeReadSerializer
 
     @action(['get'], detail=False)
     def subscriptions(self, request, *args, **kwargs):
-        self.get_queryset = self.get_subscriptions
-        self.get_serializer_class = self.get_subscribe_serializer
+        self.get_queryset = self.get_subscriptions_queryset
+        self.get_serializer_class = self.get_subscribe_read_serializer_class
         return self.list(request, *args, **kwargs)
 
 
 class IngredientViewSet(ReadOnlyModelViewSet):
     queryset = Ingredient.objects.all()
-    serializer_class = IngredientSerializer
+    serializer_class = IngredientReadSerializer
     pagination_class = None
     filter_backends = (NameSearchFilter,)
 
 
 class TagViewSet(ReadOnlyModelViewSet):
     queryset = Tag.objects.all()
-    serializer_class = TagSerializer
+    serializer_class = TagReadSerializer
     pagination_class = None
 
 
 class RecipeViewSet(ModelViewSet):
-    queryset = Recipe.objects.all()
     serializer_class = RecipeSerializer
+
+    def get_queryset(self):
+        return Recipe.objects.annotate(is_subscribed_to_author=Exists(
+            Subscribe.objects.filter(
+                author=OuterRef('author'),
+                user__username=self.request.user.username
+            )
+        )).all()
 
     def get_serializer_class(self):
         if self.request.method == 'GET':
-            return RecipeGetSerializer
+            return RecipeReadSerializer
         elif self.action in ('favorite', 'shopping_cart'):
-            return RecipeShortSerializer
+            return RecipeShortReadSerializer
         return self.serializer_class
 
-    def get_recipe_get_serializer(self):
-        return RecipeGetSerializer
+    def get_read_serializer_class(self):
+        if self.action == 'update':
+            return RecipeReadSerializer
+        return RecipePostReadSerializer
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.get_serializer_class = self.get_recipe_get_serializer
+        self.get_serializer_class = self.get_read_serializer_class
         return Response(self.get_serializer(
-            instance=serializer.save(author=self.request.user)
+            serializer.save(author=self.request.user)
         ).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.get_serializer_class = self.get_read_serializer_class
+        return Response(self.get_serializer(serializer.save()).data)
 
     @action(
         ['post', 'delete'],
