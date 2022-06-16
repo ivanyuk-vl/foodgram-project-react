@@ -1,8 +1,10 @@
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
+from django.forms import ValidationError
 
 SUBSCRIBE_STR = 'id: {}, автор: {}, подписчик: {}'
+SELF_SUBSCRIBE_ERROR = 'Нельзя подписаться на самого себя.'
 
 
 class User(AbstractUser):
@@ -62,6 +64,10 @@ class Subscribe(models.Model):
         ]
         verbose_name = 'подписка'
         verbose_name_plural = 'подписки'
+
+    def clean(self) -> None:
+        if self.author == self.user:
+            raise ValidationError(SELF_SUBSCRIBE_ERROR)
 
     def __str__(self):
         return SUBSCRIBE_STR.format(
