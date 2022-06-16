@@ -1,6 +1,4 @@
-from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count, Exists, OuterRef, Sum
-from django.db.utils import IntegrityError
 from django.http import HttpResponse
 from djoser.serializers import SetPasswordSerializer, UserCreateSerializer
 from django_filters.rest_framework import DjangoFilterBackend
@@ -15,7 +13,7 @@ from rest_framework.viewsets import (
     GenericViewSet, ModelViewSet, ReadOnlyModelViewSet
 )
 
-from .filters import NameSearchFilter, RecipeFilter
+from .filters import IngredientFilter, RecipeFilter
 from .permissions import IsAdminOrIsAuthorOrReadOnly
 from .serializers import (
     IngredientReadSerializer, SubscribePostReadSerializer,
@@ -35,6 +33,10 @@ UNIQUE_FAVORITE_ERROR = 'У пользователя {} уже есть реце
 UNIQUE_SUBSCRIBE_ERROR = 'Пользователь {} уже подписан на автора {}.'
 
 
+def get_bad_request_response(message):
+    return Response({'errors': message}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class UserViewSet(mixins.CreateModelMixin,
                   mixins.RetrieveModelMixin,
                   mixins.ListModelMixin,
@@ -42,23 +44,27 @@ class UserViewSet(mixins.CreateModelMixin,
     serializer_class = UserSerializer
     permission_classes = (IsAuthenticatedOrReadOnly,)
 
-    def get_users_queryset(self):
-        return User.objects.annotate(is_subscribed=Exists(
+    def get_queryset(self):
+        queryset = User.objects.annotate(is_subscribed=Exists(
             Subscribe.objects.filter(
                 author=OuterRef('pk'),
                 user__username=self.request.user.username
             )
-        ))
-
-    def get_queryset(self):
-        return self.get_users_queryset().all()
+        )).all()
+        if self.action in ('subscribe', 'subscriptions'):
+            queryset = queryset.annotate(recipes_count=Count('recipes'))
+        if self.action == 'subscriptions':
+            return queryset.filter(subscribers__user=self.request.user)
+        return queryset
 
     def get_serializer_class(self):
         if self.action == 'subscribe':
             return SubscribePostReadSerializer
-        elif self.action == 'create':
+        if self.action == 'subscriptions':
+            return SubscribeReadSerializer
+        if self.action == 'create':
             return UserCreateSerializer
-        elif self.action == 'set_password':
+        if self.action == 'set_password':
             return SetPasswordSerializer
         return self.serializer_class
 
@@ -83,50 +89,30 @@ class UserViewSet(mixins.CreateModelMixin,
         url_path=r'(?P<author_id>\d+)/subscribe',
     )
     def subscribe(self, request, author_id, *args, **kwargs):
-        author = get_object_or_404(User.objects.filter(id=author_id).annotate(
-            recipes_count=Count('recipes')
-        ))
-        try:
-            if self.request.method == 'DELETE':
-                self.request.user.subscriptions.get(author=author).delete()
-                return Response(status=status.HTTP_204_NO_CONTENT)
-            self.request.user.subscriptions.create(author=author)
-        except ObjectDoesNotExist:
-            return Response({'errors': DOES_NOT_EXIST_SUBSCRIBE_ERROR.format(
-                self.request.user.username, author.username
-            )}, status=status.HTTP_400_BAD_REQUEST)
-        except IntegrityError as exception:
-            exception_message = str(exception)
-            if exception_message.startswith('UNIQUE'):
-                data = UNIQUE_SUBSCRIBE_ERROR.format(
-                    self.request.user.username, author.username
+        author = get_object_or_404(self.get_queryset(), id=author_id)
+        if self.request.user == author:
+            return get_bad_request_response(SELF_SUBSCRIBE_ERROR)
+        if self.request.method == 'DELETE':
+            if not author.is_subscribed:
+                return get_bad_request_response(
+                    DOES_NOT_EXIST_SUBSCRIBE_ERROR.format(
+                        self.request.user.username, author.username
+                    )
                 )
-            elif exception_message.startswith('CHECK'):
-                data = SELF_SUBSCRIBE_ERROR
-            else:
-                raise IntegrityError(exception)
-            return Response(
-                {'errors': data}, status=status.HTTP_400_BAD_REQUEST
-            )
+            self.request.user.subscriptions.get(author=author).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if author.is_subscribed:
+            return get_bad_request_response(UNIQUE_SUBSCRIBE_ERROR.format(
+                self.request.user.username, author.username
+            ))
+        self.request.user.subscriptions.create(author=author)
         return Response(
             self.get_serializer(author).data,
             status=status.HTTP_201_CREATED
         )
 
-    def get_subscriptions_queryset(self):
-        return (
-            self.get_users_queryset()
-            .annotate(recipes_count=Count('recipes'))
-            .filter(subscribers__user=self.request.user)
-        )
-
-    def get_subscribe_read_serializer_class(self):
-        return SubscribeReadSerializer
-
     @action(['get'], detail=False, permission_classes=(IsAuthenticated,))
     def subscriptions(self, request, *args, **kwargs):
-        self.get_queryset = self.get_subscriptions_queryset
-        self.get_serializer_class = self.get_subscribe_read_serializer_class
         return self.list(request, *args, **kwargs)
 
 
@@ -135,7 +121,8 @@ class IngredientViewSet(ReadOnlyModelViewSet):
     serializer_class = IngredientReadSerializer
     permission_classes = (AllowAny,)
     pagination_class = None
-    filter_backends = (NameSearchFilter,)
+    filter_backends = (DjangoFilterBackend,)
+    filterset_class = IngredientFilter
 
 
 class TagViewSet(ReadOnlyModelViewSet):
@@ -167,17 +154,17 @@ class RecipeViewSet(ModelViewSet):
                 recipe=OuterRef('id'),
                 user__username=self.request.user.username
             )
-        ))
+        )).all()
         tags = self.request.query_params.getlist('tags')
-        if tags and ''.join(tags):
+        if self.request.method == 'GET' and tags and ''.join(tags):
             return queryset.filter(tags__slug__in=tags)
-        return queryset.all()
+        return queryset
 
     def get_serializer_class(self):
+        if self.action in ('favorite', 'shopping_cart'):
+            return RecipeShortReadSerializer
         if self.request.method == 'GET':
             return RecipeReadSerializer
-        elif self.action in ('favorite', 'shopping_cart'):
-            return RecipeShortReadSerializer
         return self.serializer_class
 
     def get_read_serializer_class(self):
@@ -206,22 +193,20 @@ class RecipeViewSet(ModelViewSet):
         url_path=r'(?P<recipe_id>\d+)/favorite'
     )
     def favorite(self, request, recipe_id, *args, **kwargs):
-        recipe = get_object_or_404(Recipe, id=recipe_id)
-        try:
-            if self.action == 'DELETE':
-                self.request.user.favorite.get(recipe=recipe).delete()
-                return Response(status=status.HTTP_204_NO_CONTENT)
-            self.request.user.favorite.create(recipe=recipe)
-        except ObjectDoesNotExist:
-            return Response({'errors': DOES_NOT_EXIST_FAVORITE_ERROR.format(
+        recipe = get_object_or_404(self.get_queryset(), id=recipe_id)
+        if self.action == 'DELETE':
+            if not recipe.is_favorited:
+                return get_bad_request_response(
+                    DOES_NOT_EXIST_FAVORITE_ERROR.format(
+                        self.request.user.username, recipe.name
+                    )
+                )
+            self.request.user.favorite.get(recipe=recipe).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if recipe.is_favorited:
+            return get_bad_request_response(UNIQUE_FAVORITE_ERROR.format(
                 self.request.user.username, recipe.name
-            )}, status=status.HTTP_400_BAD_REQUEST)
-        except IntegrityError as exception:
-            if not str(exception).startswith('UNIQUE'):
-                raise IntegrityError(exception)
-            return Response(UNIQUE_FAVORITE_ERROR.format(
-                self.request.user.username, recipe.name
-            ), status=status.HTTP_400_BAD_REQUEST)
+            ))
         return Response(
             self.get_serializer(recipe), status=status.HTTP_201_CREATED
         )
@@ -232,31 +217,35 @@ class RecipeViewSet(ModelViewSet):
         url_path=r'(?P<recipe_id>)\d+/shopping_cart'
     )
     def shopping_cart(self, request, recipe_id, *args, **kwargs):
-        recipe = get_object_or_404(Recipe, id=recipe_id)
-        try:
-            if self.action == 'DELETE':
-                self.request.user.shopping_cart.get(recipe=recipe).delete()
-                return Response(status=status.HTTP_204_NO_CONTENT)
-            self.request.user.shopping_cart.create(recipe=recipe)
-        except ObjectDoesNotExist:
-            return Response({'errors': DOES_NOT_EXIST_CART_ERROR.format(
+        recipe = get_object_or_404(self.get_queryset(), id=recipe_id)
+        if self.action == 'DELETE':
+            if not recipe.is_in_shopping_cart:
+                return get_bad_request_response(
+                    DOES_NOT_EXIST_CART_ERROR.format(
+                        self.request.user.username, recipe.name
+                    )
+                )
+            self.request.user.shopping_cart.get(recipe=recipe).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if recipe.is_in_shopping_cart:
+            return get_bad_request_response(UNIQUE_CART_ERROR.format(
                 self.request.user.username, recipe.name
-            )}, status=status.HTTP_400_BAD_REQUEST)
-        except IntegrityError as exception:
-            if not str(exception).startswith('UNIQUE'):
-                raise IntegrityError(exception)
-            return Response(UNIQUE_CART_ERROR.format(
-                self.request.user.username, recipe.name
-            ), status=status.HTTP_400_BAD_REQUEST)
+            ))
+        self.request.user.shopping_cart.create(recipe=recipe)
         return Response(
             self.get_serializer(recipe), status=status.HTTP_201_CREATED
         )
 
     @action(['get'], detail=False, permission_classes=(IsAuthenticated,))
     def download_shopping_cart(self, request, *args, **kwargs):
-        return HttpResponse('\n'.join([(
+        response = HttpResponse('\n'.join([(
             f'* {ingredient.name} ({ingredient.measurement_unit}) '
             f'- {ingredient.amount}'
         ) for ingredient in Ingredient.objects.filter(
             recipes__shopping_cart__user=self.request.user
         ).annotate(amount=Sum('amounts_for_recipes__amount'))]))
+        response['Content-Type'] = 'text/plain'
+        response['Content-Disposition'] = (
+            'attachment; filename="Список покупок.txt"'.encode('UTF-8')
+        )
+        return response

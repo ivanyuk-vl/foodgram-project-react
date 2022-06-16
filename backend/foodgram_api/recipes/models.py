@@ -9,7 +9,6 @@ ID_RECIPE_USER_STR = 'id: {}, рецепт: {}, пользователь: {}'
 INGREDIENT_STR = 'id: {}, название: {}, ед.изм.: {}'
 INGREDIENT_AMOUNT_STR = 'id: {}, рецепт: {}, ингедиент: {}, кол-во: {}'
 RECIPE_STR = 'id: {}, название: {}, автор: {}'
-TAG_STR = 'id:{}, название: {}, цвет: {}, метка: {}'
 
 
 class SlugField(models.SlugField):
@@ -30,6 +29,7 @@ class Ingredient(models.Model):
     class Meta:
         verbose_name = 'ингредиент'
         verbose_name_plural = 'ингредиенты'
+        ordering = ('name',)
 
     def __str__(self):
         return INGREDIENT_STR.format(
@@ -41,12 +41,14 @@ class IngredientAmount(models.Model):
     recipe = models.ForeignKey(
         'Recipe',
         on_delete=models.CASCADE,
-        related_name='amounts_of_ingredients'
+        related_name='amounts_of_ingredients',
+        verbose_name='рецепт'
     )
     ingredient = models.ForeignKey(
         Ingredient,
         on_delete=models.CASCADE,
-        related_name='amounts_for_recipes'
+        related_name='amounts_for_recipes',
+        verbose_name='ингредиент'
     )
     amount = models.IntegerField('количество')
 
@@ -98,14 +100,18 @@ class Tag(models.Model):
     class Meta:
         verbose_name = 'тег'
         verbose_name_plural = 'теги'
+        ordering = ('name',)
 
     def __str__(self):
-        return TAG_STR.format(self.pk, self.name[:15], self.color, self.slug)
+        return self.slug
 
 
 class Recipe(models.Model):
     author = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name='recipes'
+        User,
+        on_delete=models.CASCADE,
+        related_name='recipes',
+        verbose_name='автор'
     )
     name = models.CharField('название', max_length=200)
     image = models.ImageField('изображение', upload_to='recipes/')
@@ -113,7 +119,7 @@ class Recipe(models.Model):
     ingredients = models.ManyToManyField(
         Ingredient, through=IngredientAmount, related_name='recipes'
     )
-    tags = models.ManyToManyField(Tag)
+    tags = models.ManyToManyField(Tag, verbose_name='теги')
     cooking_time = models.IntegerField(
         'время приготовления', validators=[min_cooking_time_validator]
     )
@@ -125,6 +131,7 @@ class Recipe(models.Model):
     class Meta:
         verbose_name = 'рецепт'
         verbose_name_plural = 'рецепты'
+        ordering = ('-pub_date',)
 
     def __str__(self):
         return RECIPE_STR.format(self.pk, self.name, self.author.username)
