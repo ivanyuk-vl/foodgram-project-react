@@ -1,30 +1,35 @@
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count, Exists, OuterRef, Sum
 from django.db.utils import IntegrityError
+from django.http import HttpResponse
 from djoser.serializers import SetPasswordSerializer, UserCreateSerializer
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
+from rest_framework.permissions import (
+    AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+)
 from rest_framework.response import Response
 from rest_framework.viewsets import (
     GenericViewSet, ModelViewSet, ReadOnlyModelViewSet
 )
 
-from .filters import NameSearchFilter
+from .filters import NameSearchFilter, RecipeFilter
+from .permissions import IsAdminOrIsAuthorOrReadOnly
 from .serializers import (
     IngredientReadSerializer, SubscribePostReadSerializer,
     SubscribeReadSerializer, RecipeReadSerializer,
     RecipePostReadSerializer, RecipeShortReadSerializer, RecipeSerializer,
     TagReadSerializer, UserSerializer
 )
-from recipes.models import Ingredient, Recipe, Tag
-from users.models import User, Subscribe
+from recipes.models import Ingredient, Favorite, Recipe, ShoppingCart, Tag
+from users.models import SELF_SUBSCRIBE_ERROR, Subscribe, User
 
 
 DOES_NOT_EXIST_CART_ERROR = 'У пользователя {} нет рецета {} в списке покупок.'
 DOES_NOT_EXIST_FAVORITE_ERROR = 'У пользователя {} нет рецета {} в избранном.'
 DOES_NOT_EXIST_SUBSCRIBE_ERROR = 'Пользователь {} не подписан на автора {}.'
-SELF_SUBSCRIBE_ERROR = 'Нельзя подписаться на самого себя.'
 UNIQUE_CART_ERROR = 'У пользователя {} уже есть рецепт {} в списке покупок.'
 UNIQUE_FAVORITE_ERROR = 'У пользователя {} уже есть рецепт {} в избранном.'
 UNIQUE_SUBSCRIBE_ERROR = 'Пользователь {} уже подписан на автора {}.'
@@ -35,6 +40,7 @@ class UserViewSet(mixins.CreateModelMixin,
                   mixins.ListModelMixin,
                   GenericViewSet):
     serializer_class = UserSerializer
+    permission_classes = (IsAuthenticatedOrReadOnly,)
 
     def get_users_queryset(self):
         return User.objects.annotate(is_subscribed=Exists(
@@ -59,7 +65,7 @@ class UserViewSet(mixins.CreateModelMixin,
     def get_instance(self):
         return self.request.user
 
-    @action(['get'], detail=False)
+    @action(['get'], detail=False, permission_classes=(IsAuthenticated,))
     def me(self, request, *args, **kwargs):
         self.get_object = self.get_instance
         return self.retrieve(request, *args, **kwargs)
@@ -74,7 +80,7 @@ class UserViewSet(mixins.CreateModelMixin,
     @action(
         ['post', 'delete'],
         detail=False,
-        url_path=r'(?P<author_id>\d+)/subscribe'
+        url_path=r'(?P<author_id>\d+)/subscribe',
     )
     def subscribe(self, request, author_id, *args, **kwargs):
         author = get_object_or_404(User.objects.filter(id=author_id).annotate(
@@ -117,7 +123,7 @@ class UserViewSet(mixins.CreateModelMixin,
     def get_subscribe_read_serializer_class(self):
         return SubscribeReadSerializer
 
-    @action(['get'], detail=False)
+    @action(['get'], detail=False, permission_classes=(IsAuthenticated,))
     def subscriptions(self, request, *args, **kwargs):
         self.get_queryset = self.get_subscriptions_queryset
         self.get_serializer_class = self.get_subscribe_read_serializer_class
@@ -127,6 +133,7 @@ class UserViewSet(mixins.CreateModelMixin,
 class IngredientViewSet(ReadOnlyModelViewSet):
     queryset = Ingredient.objects.all()
     serializer_class = IngredientReadSerializer
+    permission_classes = (AllowAny,)
     pagination_class = None
     filter_backends = (NameSearchFilter,)
 
@@ -134,19 +141,37 @@ class IngredientViewSet(ReadOnlyModelViewSet):
 class TagViewSet(ReadOnlyModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagReadSerializer
+    permission_classes = (AllowAny,)
     pagination_class = None
 
 
 class RecipeViewSet(ModelViewSet):
     serializer_class = RecipeSerializer
+    permission_classes = (IsAdminOrIsAuthorOrReadOnly,)
+    filter_backends = (DjangoFilterBackend,)
+    filterset_class = RecipeFilter
 
     def get_queryset(self):
-        return Recipe.objects.annotate(is_subscribed_to_author=Exists(
+        queryset = Recipe.objects.annotate(is_subscribed=Exists(
             Subscribe.objects.filter(
                 author=OuterRef('author'),
                 user__username=self.request.user.username
             )
-        )).all()
+        )).annotate(is_favorited=Exists(
+            Favorite.objects.filter(
+                recipe=OuterRef('id'),
+                user__username=self.request.user.username
+            )
+        )).annotate(is_in_shopping_cart=Exists(
+            ShoppingCart.objects.filter(
+                recipe=OuterRef('id'),
+                user__username=self.request.user.username
+            )
+        ))
+        tags = self.request.query_params.getlist('tags')
+        if tags and ''.join(tags):
+            return queryset.filter(tags__slug__in=tags)
+        return queryset.all()
 
     def get_serializer_class(self):
         if self.request.method == 'GET':
@@ -227,8 +252,11 @@ class RecipeViewSet(ModelViewSet):
             self.get_serializer(recipe), status=status.HTTP_201_CREATED
         )
 
-    @action(['get'], detail=False)
+    @action(['get'], detail=False, permission_classes=(IsAuthenticated,))
     def download_shopping_cart(self, request, *args, **kwargs):
-        Ingredient.objects.filter(
-            recipe__shopping_cart__user=self.request.user
-        ).annotate(amount=Sum('amounts_for_recipes__amount'))
+        return HttpResponse('\n'.join([(
+            f'* {ingredient.name} ({ingredient.measurement_unit}) '
+            f'- {ingredient.amount}'
+        ) for ingredient in Ingredient.objects.filter(
+            recipes__shopping_cart__user=self.request.user
+        ).annotate(amount=Sum('amounts_for_recipes__amount'))]))

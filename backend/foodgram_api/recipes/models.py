@@ -22,7 +22,7 @@ class Ingredient(models.Model):
         max_length=200,
         unique=True,
         error_messages={
-            'unique': 'Рецепт с таким названием уже существует.',
+            'unique': 'Ингредиент с таким названием уже существует.'
         },
     )
     measurement_unit = models.CharField('единица измерения', max_length=200)
@@ -111,11 +111,15 @@ class Recipe(models.Model):
     image = models.ImageField('изображение', upload_to='recipes/')
     text = models.TextField('описание')
     ingredients = models.ManyToManyField(
-        Ingredient, through=IngredientAmount
+        Ingredient, through=IngredientAmount, related_name='recipes'
     )
     tags = models.ManyToManyField(Tag)
     cooking_time = models.IntegerField(
         'время приготовления', validators=[min_cooking_time_validator]
+    )
+    pub_date = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='дата публикации',
     )
 
     class Meta:

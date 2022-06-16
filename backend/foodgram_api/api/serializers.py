@@ -5,6 +5,8 @@ from rest_framework import serializers
 from .fields import ImageField
 from recipes.models import Ingredient, IngredientAmount, Recipe, Tag
 
+SAME_INGREDIENTS_ERROR = 'Ингедиенты {} указаны несколько раз.'
+
 
 class UserSerializer(DjoserUserSerializer):
     is_subscribed = serializers.BooleanField(read_only=True)
@@ -59,7 +61,26 @@ class RecipeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Recipe
-        exclude = ('author',)
+        fields = (
+            'ingredients', 'tags', 'image', 'name', 'text', 'cooking_time'
+        )
+
+    def validate_ingredients(self, ingredients):
+        same_ingredients = [
+            ingredient['ingredient'] for ingredient in ingredients
+        ]
+        for ingredient in set(same_ingredients):
+            same_ingredients.remove(ingredient)
+        if same_ingredients:
+            raise serializers.ValidationError(
+                SAME_INGREDIENTS_ERROR.format(
+                    [
+                        f'id: {ingredient.id} ({ingredient.name})'
+                        for ingredient in set(same_ingredients)
+                    ]
+                )
+            )
+        return ingredients
 
     def create(self, validated_data):
         ingredients = validated_data.pop('ingredients')
@@ -118,7 +139,7 @@ class RecipeReadSerializer(RecipeShortReadSerializer):
     def get_author(self, instance):
         return dict(
             **UserSerializer(instance=instance.author).data,
-            is_subscribed=instance.is_subscribed_to_author
+            is_subscribed=instance.is_subscribed
         )
 
 
