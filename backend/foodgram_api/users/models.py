@@ -37,6 +37,12 @@ class User(AbstractUser):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
 
+    class Meta(AbstractUser.Meta):
+        ordering = ('username',)
+
+    def __str__(self):
+        return self.username
+
 
 class Subscribe(models.Model):
     author = models.ForeignKey(

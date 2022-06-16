@@ -104,5 +104,5 @@ REST_FRAMEWORK = {
         'api.permissions.IsAdmin',
     ],
     'DEFAULT_PAGINATION_CLASS': 'api.pagination.LimitPageNumberPagination',
-    'PAGE_SIZE': 10,
+    'PAGE_SIZE': 6,
 }
