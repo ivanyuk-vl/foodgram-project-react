@@ -19,7 +19,10 @@ class User(AbstractUser):
         ),
         validators=[UnicodeUsernameValidator(r'^[\w.@+-]+\Z')],
         error_messages={
-            'unique': 'Пользователь с таким именем уже существует.',
+            'unique': (
+                'Пользователь с таким именем пользователя '
+                'уже существует.'
+            ),
         },
     )
     first_name = models.CharField('имя', max_length=150)

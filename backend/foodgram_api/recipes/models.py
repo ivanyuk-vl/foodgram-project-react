@@ -1,7 +1,9 @@
 from django.db import models
 
+from .fields import ModelsSlugField
 from .validators import (
-    min_cooking_time_validator, validate_hex_color, validate_slug
+    min_cooking_time_validator, min_ingredient_amount_validator,
+    validate_hex_color
 )
 from users.models import User
 
@@ -11,18 +13,10 @@ INGREDIENT_AMOUNT_STR = 'id: {}, рецепт: {}, ингедиент: {}, ко�
 RECIPE_STR = 'id: {}, название: {}, автор: {}'
 
 
-class SlugField(models.SlugField):
-    default_validators = [validate_slug]
-
-
 class Ingredient(models.Model):
     name = models.CharField(
         'название',
         max_length=200,
-        unique=True,
-        error_messages={
-            'unique': 'Ингредиент с таким названием уже существует.'
-        },
     )
     measurement_unit = models.CharField('единица измерения', max_length=200)
 
@@ -30,6 +24,11 @@ class Ingredient(models.Model):
         verbose_name = 'ингредиент'
         verbose_name_plural = 'ингредиенты'
         ordering = ('name',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=['name', 'measurement_unit'], name='unique_ingredient'
+            )
+        ]
 
     def __str__(self):
         return INGREDIENT_STR.format(
@@ -50,7 +49,10 @@ class IngredientAmount(models.Model):
         related_name='amounts_for_recipes',
         verbose_name='ингредиент'
     )
-    amount = models.IntegerField('количество')
+    amount = models.IntegerField(
+        'количество',
+        validators=[min_ingredient_amount_validator]
+    )
 
     class Meta:
         verbose_name = 'количество ингредиента'
@@ -87,7 +89,7 @@ class Tag(models.Model):
             'unique': 'Тег с таким цветом уже существует.',
         }
     )
-    slug = SlugField(
+    slug = ModelsSlugField(
         'метка',
         max_length=200,
         unique=True,

@@ -1,26 +1,25 @@
 from django.db.models import Count, Exists, OuterRef, Sum
-from django.http import HttpResponse
+from django.http import FileResponse
 from djoser.serializers import SetPasswordSerializer, UserCreateSerializer
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status
 from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
-from rest_framework.permissions import (
-    AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
-)
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import (
     GenericViewSet, ModelViewSet, ReadOnlyModelViewSet
 )
 
 from .filters import IngredientFilter, RecipeFilter
-from .permissions import IsAdminOrIsAuthorOrReadOnly
+from .permissions import IsAuthorOrReadOnly
 from .serializers import (
     IngredientReadSerializer, SubscribePostReadSerializer,
     SubscribeReadSerializer, RecipeReadSerializer,
     RecipePostReadSerializer, RecipeShortReadSerializer, RecipeSerializer,
     TagReadSerializer, UserSerializer
 )
+from .utils import ingredients_to_pdf
 from recipes.models import Ingredient, Favorite, Recipe, ShoppingCart, Tag
 from users.models import SELF_SUBSCRIBE_ERROR, Subscribe, User
 
@@ -42,7 +41,7 @@ class UserViewSet(mixins.CreateModelMixin,
                   mixins.ListModelMixin,
                   GenericViewSet):
     serializer_class = UserSerializer
-    permission_classes = (IsAuthenticatedOrReadOnly,)
+    permission_classes = (AllowAny,)
 
     def get_queryset(self):
         queryset = User.objects.annotate(is_subscribed=Exists(
@@ -76,17 +75,19 @@ class UserViewSet(mixins.CreateModelMixin,
         self.get_object = self.get_instance
         return self.retrieve(request, *args, **kwargs)
 
-    @action(['post'], detail=False)
+    @action(['post'], detail=False, permission_classes=(IsAuthenticated,))
     def set_password(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.request.user.set_password(serializer.data['new_password'])
         self.request.user.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(
         ['post', 'delete'],
         detail=False,
         url_path=r'(?P<author_id>\d+)/subscribe',
+        permission_classes=(IsAuthenticated,)
     )
     def subscribe(self, request, author_id, *args, **kwargs):
         author = get_object_or_404(self.get_queryset(), id=author_id)
@@ -134,7 +135,7 @@ class TagViewSet(ReadOnlyModelViewSet):
 
 class RecipeViewSet(ModelViewSet):
     serializer_class = RecipeSerializer
-    permission_classes = (IsAdminOrIsAuthorOrReadOnly,)
+    permission_classes = (IsAuthorOrReadOnly,)
     filter_backends = (DjangoFilterBackend,)
     filterset_class = RecipeFilter
 
@@ -190,11 +191,12 @@ class RecipeViewSet(ModelViewSet):
     @action(
         ['post', 'delete'],
         detail=False,
-        url_path=r'(?P<recipe_id>\d+)/favorite'
+        url_path=r'(?P<recipe_id>\d+)/favorite',
+        permission_classes=(IsAuthenticated,)
     )
     def favorite(self, request, recipe_id, *args, **kwargs):
         recipe = get_object_or_404(self.get_queryset(), id=recipe_id)
-        if self.action == 'DELETE':
+        if self.request.method == 'DELETE':
             if not recipe.is_favorited:
                 return get_bad_request_response(
                     DOES_NOT_EXIST_FAVORITE_ERROR.format(
@@ -207,18 +209,20 @@ class RecipeViewSet(ModelViewSet):
             return get_bad_request_response(UNIQUE_FAVORITE_ERROR.format(
                 self.request.user.username, recipe.name
             ))
+        self.request.user.favorite.create(recipe=recipe)
         return Response(
-            self.get_serializer(recipe), status=status.HTTP_201_CREATED
+            self.get_serializer(recipe).data, status=status.HTTP_201_CREATED
         )
 
     @action(
         ['post', 'delete'],
         detail=False,
-        url_path=r'(?P<recipe_id>)\d+/shopping_cart'
+        url_path=r'(?P<recipe_id>\d+)/shopping_cart',
+        permission_classes=(IsAuthenticated,)
     )
     def shopping_cart(self, request, recipe_id, *args, **kwargs):
-        recipe = get_object_or_404(self.get_queryset(), id=recipe_id)
-        if self.action == 'DELETE':
+        recipe = get_object_or_404(self.get_queryset().filter(id=recipe_id))
+        if self.request.method == 'DELETE':
             if not recipe.is_in_shopping_cart:
                 return get_bad_request_response(
                     DOES_NOT_EXIST_CART_ERROR.format(
@@ -233,19 +237,18 @@ class RecipeViewSet(ModelViewSet):
             ))
         self.request.user.shopping_cart.create(recipe=recipe)
         return Response(
-            self.get_serializer(recipe), status=status.HTTP_201_CREATED
+            self.get_serializer(recipe).data, status=status.HTTP_201_CREATED
         )
 
     @action(['get'], detail=False, permission_classes=(IsAuthenticated,))
     def download_shopping_cart(self, request, *args, **kwargs):
-        response = HttpResponse('\n'.join([(
-            f'* {ingredient.name} ({ingredient.measurement_unit}) '
+        response = FileResponse(ingredients_to_pdf([(
+            f'{ingredient.name} ({ingredient.measurement_unit}) '
             f'- {ingredient.amount}'
         ) for ingredient in Ingredient.objects.filter(
             recipes__shopping_cart__user=self.request.user
-        ).annotate(amount=Sum('amounts_for_recipes__amount'))]))
-        response['Content-Type'] = 'text/plain'
-        response['Content-Disposition'] = (
-            'attachment; filename="Список покупок.txt"'.encode('UTF-8')
-        )
+        ).annotate(amount=Sum(
+            'amounts_for_recipes__amount'
+        ))]), as_attachment=True)
+        response['Content-Type'] = 'application/pdf'
         return response

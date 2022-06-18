@@ -4,6 +4,7 @@ import re
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.fields import ImageField as RestFrameworkImageField
+from rest_framework.settings import api_settings
 
 
 class ImageField(RestFrameworkImageField):
@@ -11,7 +12,7 @@ class ImageField(RestFrameworkImageField):
         match = re.match(
             (
                 r'^data:(?P<content_type>image\/(?P<extension>[a-z]+));'
-                r'base64,(?P<content>[A-Za-z0-9+\/]+==)$'
+                r'base64,(?P<content>[A-Za-z0-9+\/]+.{2})$'
             ), data
         )
         if not match:
@@ -25,3 +26,14 @@ class ImageField(RestFrameworkImageField):
         except binascii.Error:
             self.fail('invalid')
         return super().to_internal_value(data)
+
+    def to_representation(self, value):
+        if not value:
+            return None
+        use_url = getattr(self, 'use_url', api_settings.UPLOADED_FILES_USE_URL)
+        if use_url:
+            try:
+                return value.url
+            except AttributeError:
+                return None
+        return value.name
