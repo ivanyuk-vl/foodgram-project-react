@@ -6,6 +6,7 @@ services:
       - frontend_volume:/app/result_build/
   db:
     image: postgres:13.0-alpine
+    restart: always
     volumes:
       - /var/lib/postgresql/data/
     env_file:

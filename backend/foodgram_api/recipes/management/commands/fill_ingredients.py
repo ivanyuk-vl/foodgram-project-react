@@ -17,4 +17,6 @@ class Command(BaseCommand):
         ), encoding='UTF-8') as file:
             for ingredient in json.load(file):
                 rows.append(Ingredient(**ingredient))
-        print(ADDED_INGREDIENTS_COUNT_MESSAGE)
+        print(ADDED_INGREDIENTS_COUNT_MESSAGE.format(
+            len(Ingredient.objects.bulk_create(rows))
+        ))
