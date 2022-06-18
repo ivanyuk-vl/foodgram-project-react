@@ -3,9 +3,8 @@ from djoser.serializers import UserSerializer as DjoserUserSerializer
 from rest_framework import serializers
 
 from .fields import ImageField
+from recipes.admin import SAME_INGREDIENTS_ERROR
 from recipes.models import Ingredient, IngredientAmount, Recipe, Tag
-
-SAME_INGREDIENTS_ERROR = 'Ингедиенты {} указаны несколько раз.'
 
 
 class UserSerializer(DjoserUserSerializer):
@@ -97,7 +96,6 @@ class RecipeSerializer(serializers.ModelSerializer):
     def update(self, recipe, validated_data):
         ingredients = validated_data.pop('ingredients')
         tags = validated_data.pop('tags')
-        recipe.image.delete()
         recipe.amounts_of_ingredients.all().delete()
         for attr, value in validated_data.items():
             setattr(recipe, attr, value)
@@ -112,6 +110,8 @@ class RecipeSerializer(serializers.ModelSerializer):
 
 
 class RecipeShortReadSerializer(serializers.ModelSerializer):
+    image = ImageField()
+
     class Meta:
         model = Recipe
         fields = ('id', 'name', 'image', 'cooking_time')

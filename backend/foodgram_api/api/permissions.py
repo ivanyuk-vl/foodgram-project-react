@@ -8,12 +8,9 @@ class IsAdmin(BasePermission):
         return not request.user.is_anonymous and request.user.is_staff
 
 
-class IsAdminOrIsAuthorOrReadOnly(
-    IsAuthenticatedOrReadOnly, IsAdmin
-):
+class IsAuthorOrReadOnly(IsAuthenticatedOrReadOnly):
     def has_object_permission(self, request, view, obj):
         return (
             request.method in SAFE_METHODS
             or obj.author == request.user
-            or IsAdmin.has_permission(self, request, view)
         )

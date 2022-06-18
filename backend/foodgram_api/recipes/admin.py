@@ -6,16 +6,24 @@ from .models import (
 )
 
 INGREDIENTS_COUNT_ERROR = 'Нужно указать хотя бы один ингредиент.'
+SAME_INGREDIENTS_ERROR = 'Ингедиенты {} указаны несколько раз.'
 
 
 class IngredientAmountInlineFormset(forms.models.BaseInlineFormSet):
     def clean(self):
-        count = 0
+        ingredients = []
         for form in self.forms:
             if form.cleaned_data:
-                count += 1
-        if count < 1:
+                ingredients.append(form.cleaned_data['ingredient'])
+        if not ingredients:
             raise forms.ValidationError(INGREDIENTS_COUNT_ERROR)
+        for ingredient in set(ingredients):
+            ingredients.remove(ingredient)
+        if ingredients:
+            raise forms.ValidationError(SAME_INGREDIENTS_ERROR.format([
+                f'id: {ingredient.id} ({ingredient.name})'
+                for ingredient in ingredients
+            ]))
 
 
 class IngredientAmountInline(admin.TabularInline):
