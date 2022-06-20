@@ -101,7 +101,7 @@ docker compose exec web python manage.py createsuperuser
 ```
 - Команда для добавления списка ингредиентов в базу данных:
 ```
-docker compose exec web python manage.py fill_ingredients
+docker compose exec web python manage.py add_ingredients
 ```
 ## Автор
 https://github.com/ivanyuk-vl
@@ -109,3 +109,12 @@ https://github.com/ivanyuk-vl
 - http://51.250.104.154/
 - [документация](http://51.250.104.154/api/docs/)
 - [админка](http://51.250.104.154/admin/)
+
+Логин админа:
+```
+admin@mail.com
+```
+Пароль:
+```
+admin
+```

@@ -4,7 +4,17 @@ from recipes.models import Ingredient, Recipe
 
 
 class IngredientFilter(filters.FilterSet):
-    name = filters.CharFilter(lookup_expr='istartswith')
+    name = filters.CharFilter(method='filter_name')
+
+    def filter_name(self, queryset, name, value):
+        fitered_queryset = queryset.filter(
+            **{'__'.join((name, 'istartswith')): value}
+        )
+        return fitered_queryset.union(queryset.filter(
+            **{'__'.join((name, 'icontains')): value}
+        ).difference(fitered_queryset).order_by(
+            *queryset.model._meta.ordering
+        ), all=True)
 
     class Meta:
         model = Ingredient
