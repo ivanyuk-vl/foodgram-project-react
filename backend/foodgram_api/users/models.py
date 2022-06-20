@@ -62,6 +62,9 @@ class Subscribe(models.Model):
     )
 
     class Meta:
+        verbose_name = 'подписка'
+        verbose_name_plural = 'подписки'
+        ordering = ('user__username',)
         constraints = [
             models.UniqueConstraint(
                 fields=['user', 'author'], name='unique_follow'
@@ -71,8 +74,6 @@ class Subscribe(models.Model):
                 name='can\'t_follow_yourself'
             )
         ]
-        verbose_name = 'подписка'
-        verbose_name_plural = 'подписки'
 
     def clean(self) -> None:
         if self.author == self.user:

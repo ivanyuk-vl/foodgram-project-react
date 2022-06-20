@@ -54,61 +54,6 @@ class IngredientAmountReadSerializer(IngredientReadSerializer):
         fields = IngredientReadSerializer.Meta.fields + ('amount',)
 
 
-class RecipeSerializer(serializers.ModelSerializer):
-    ingredients = IngredientAmountSerializer(many=True)
-    image = ImageField()
-
-    class Meta:
-        model = Recipe
-        fields = (
-            'ingredients', 'tags', 'image', 'name', 'text', 'cooking_time'
-        )
-
-    def validate_ingredients(self, ingredients):
-        same_ingredients = [
-            ingredient['ingredient'] for ingredient in ingredients
-        ]
-        for ingredient in set(same_ingredients):
-            same_ingredients.remove(ingredient)
-        if same_ingredients:
-            raise serializers.ValidationError(
-                SAME_INGREDIENTS_ERROR.format(
-                    [
-                        f'id: {ingredient.id} ({ingredient.name})'
-                        for ingredient in set(same_ingredients)
-                    ]
-                )
-            )
-        return ingredients
-
-    def create(self, validated_data):
-        ingredients = validated_data.pop('ingredients')
-        tags = validated_data.pop('tags')
-        recipe = Recipe.objects.create(**validated_data)
-        for ingredient in ingredients:
-            recipe.amounts_of_ingredients.create(
-                ingredient=ingredient['ingredient'],
-                amount=ingredient['amount']
-            )
-        recipe.tags.set(tags)
-        return recipe
-
-    def update(self, recipe, validated_data):
-        ingredients = validated_data.pop('ingredients')
-        tags = validated_data.pop('tags')
-        recipe.amounts_of_ingredients.all().delete()
-        for attr, value in validated_data.items():
-            setattr(recipe, attr, value)
-        recipe.save()
-        for ingredient in ingredients:
-            recipe.amounts_of_ingredients.create(
-                ingredient=ingredient['ingredient'],
-                amount=ingredient['amount']
-            )
-        recipe.tags.set(tags, clear=True)
-        return recipe
-
-
 class RecipeShortReadSerializer(serializers.ModelSerializer):
     image = ImageField()
 
@@ -145,6 +90,63 @@ class RecipeReadSerializer(RecipeShortReadSerializer):
 
 class RecipePostReadSerializer(RecipeReadSerializer):
     author = UserReadSerializer()
+
+
+class RecipeSerializer(serializers.ModelSerializer):
+    ingredients = IngredientAmountSerializer(many=True)
+    image = ImageField()
+
+    class Meta:
+        model = Recipe
+        fields = (
+            'ingredients', 'tags', 'image', 'name', 'text', 'cooking_time'
+        )
+
+    def validate_ingredients(self, ingredients):
+        same_ingredients = [
+            ingredient['ingredient'] for ingredient in ingredients
+        ]
+        for ingredient in set(same_ingredients):
+            same_ingredients.remove(ingredient)
+        if same_ingredients:
+            raise serializers.ValidationError(
+                SAME_INGREDIENTS_ERROR.format([
+                    f'id: {ingredient.id} ({ingredient.name})'
+                    for ingredient in set(same_ingredients)
+                ])
+            )
+        return ingredients
+
+    def set_m2m_fields(self, recipe, ingredients, tags, clear=False):
+        if clear:
+            recipe.amounts_of_ingredients.all().delete()
+        for ingredient in ingredients:
+            recipe.amounts_of_ingredients.create(
+                ingredient=ingredient['ingredient'],
+                amount=ingredient['amount']
+            )
+        recipe.tags.set(tags, clear=clear)
+
+    def create(self, validated_data):
+        ingredients = validated_data.pop('ingredients')
+        tags = validated_data.pop('tags')
+        recipe = Recipe.objects.create(**validated_data)
+        self.set_m2m_fields(recipe, ingredients, tags)
+        return recipe
+
+    def update(self, recipe, validated_data):
+        ingredients = validated_data.pop('ingredients')
+        tags = validated_data.pop('tags')
+        recipe = super().update(recipe, validated_data)
+        self.set_m2m_fields(recipe, ingredients, tags, clear=True)
+        return recipe
+
+    def to_representation(self, instance):
+        if self.context['request'].method == 'POST':
+            return RecipePostReadSerializer(
+                instance, context=self.context
+            ).data
+        return RecipeReadSerializer(instance).data
 
 
 class SubscribeReadSerializer(UserSerializer):

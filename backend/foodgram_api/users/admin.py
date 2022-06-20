@@ -34,6 +34,7 @@ class UserAdmin(DjangoUserAdmin):
         })
     )
     search_fields = ('username', 'email')
+    ordering = None
 
 
 @admin.register(Subscribe)

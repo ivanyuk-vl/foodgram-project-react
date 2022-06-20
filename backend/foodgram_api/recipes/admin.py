@@ -6,7 +6,7 @@ from .models import (
 )
 
 INGREDIENTS_COUNT_ERROR = 'Нужно указать хотя бы один ингредиент.'
-SAME_INGREDIENTS_ERROR = 'Ингедиенты {} указаны несколько раз.'
+SAME_INGREDIENTS_ERROR = 'Ингредиенты {} указаны несколько раз.'
 
 
 class IngredientAmountInlineFormset(forms.models.BaseInlineFormSet):
@@ -22,7 +22,7 @@ class IngredientAmountInlineFormset(forms.models.BaseInlineFormSet):
         if ingredients:
             raise forms.ValidationError(SAME_INGREDIENTS_ERROR.format([
                 f'id: {ingredient.id} ({ingredient.name})'
-                for ingredient in ingredients
+                for ingredient in set(ingredients)
             ]))
 
 

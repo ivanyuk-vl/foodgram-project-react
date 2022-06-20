@@ -16,6 +16,8 @@ class Command(BaseCommand):
             os.path.join(STATIC_ROOT, 'data'), 'ingredients.json'
         ), encoding='UTF-8') as file:
             for ingredient in json.load(file):
+                for key, value in ingredient.items():
+                    ingredient[key] = value.lower()
                 rows.append(Ingredient(**ingredient))
         print(ADDED_INGREDIENTS_COUNT_MESSAGE.format(
             len(Ingredient.objects.bulk_create(rows))
